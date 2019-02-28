@@ -30,7 +30,7 @@ def printProgressBar(iteration, total, prefix = '', suffix = '', decimals = 1, l
     bar = fill * filledLength + '-' * (length - filledLength)
     print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = '\r')
     # Print New Line on Complete
-    if iteration == total: 
+    if iteration == total:
         print()
 
 def renew_token(client):
@@ -40,7 +40,12 @@ def renew_token(client):
     RENEW_TIMER = Timer(60 * 60 * 70, renew_token, (client,)) # Two hours minutes before TTL
     RENEW_TIMER.start()
 
-def exit():
+def exit(error=None):
+    if error is not None:
+        try:
+            email(error, environ.get('EMAIL_FROM'), environ.get('EMAIL_FROM').split(';'))
+        except Exception as _:
+            pass
     if RENEW_TIMER is not None:
         RENEW_TIMER.cancel()
         RENEW_TIMER.join(timeout=2)
@@ -49,35 +54,58 @@ def exit():
 def main():
     global RENEW_TIMER
 
-    vault_secret = environ["VAULT_SECRET"]
-    bucket_name = environ["BUCKET_NAME"]
-    mongo_host = environ["MONGO_HOST"]
+    vault_secret = environ.get("VAULT_SECRET")
+    bucket_name = environ.get("BUCKET_NAME")
+    mongo_host = environ.get("MONGO_HOST")
+    username = environ.get("MONGO_USERNAME")
+    password = environ.get("MONGO_PASSWORD")
 
+    if mongo_host is None:
+        import inquirer
+        questions = [
+            inquirer.Text('mongo_host', message='What is the host of the Mongo instance?'),
+            inquirer.Text('username', message='What is the username for mongo?'),
+            inquirer.Password('password', message='What is the password for mongo?'),
+        ]
+        answers = inquirer.prompt(questions)
+        mongo_host = answers['mongo_host']
+        username = answers['username']
+        password = answers['password']
 
-    client = hvac.Client(
-        url=environ['VAULT_HOST'],
-        token=environ['VAULT_TOKEN']
-    )
+    if vault_secret is not None:
+        client = hvac.Client(
+            url=environ.get('VAULT_HOST'),
+            token=environ.get('VAULT_TOKEN')
+        )
 
-    RENEW_TIMER = Timer(0, renew_token, (client,)) # Immediately renew, we don't know the TTL
-    RENEW_TIMER.start()
-    RENEW_TIMER.join()
-    
-    secret = client.read(vault_secret)['data']
-    username = secret['username']
-    password = secret['password']
+        RENEW_TIMER = Timer(0, renew_token, (client,)) # Immediately renew, we don't know the TTL
+        RENEW_TIMER.start()
+        RENEW_TIMER.join()
+
+        secret = client.read(vault_secret)['data']
+        username = secret['username']
+        password = secret['password']
 
     db_uri = "mongodb://{}:{}@{}/?authSource=admin".format(username, password, mongo_host)
-    client = MongoClient(db_uri)
+    try:
+        client = MongoClient(db_uri)
+    except Exception as e:
+        exit(e)
 
     if path.exists("dump"):
         print("Stopping, dump folder already exists")
-        exit()
+        exit(EnvironmentError('dump folder already exists'))
     else:
         mkdir("dump")
 
+    database_names = None
+    try:
+        database_names = client.list_database_names()
+    except Exception as e:
+        exit(e)
+    
     # For each database
-    for db_name in client.list_database_names():
+    for db_name in database_names:
         mkdir("dump/{}".format(db_name))
         database = client.get_database(db_name)
 
@@ -109,8 +137,32 @@ def main():
     with tarfile.open("{}".format(filename), "w:gz") as tar:
         tar.add("dump", arcname=path.basename("dump"))
 
-    s3.Bucket(bucket_name).upload_file(filename, filename)
+    if bucket_name is not None:
+        s3.Bucket(bucket_name).upload_file(filename, filename)
+    else:
+        print(f"Backup is available at {filename}")
     print("Done")
     exit()
 
-main()
+def email(error, from_address, addresses):
+    ses = boto.client('ses', region_name=environ.get('SES_REGION'))
+    bucket_name = environ.get('bucket_name')
+    response = ses.send_email(
+        Source=from_address,
+        Destination={
+            'ToAddresses': addresses
+        },
+        Message={
+            'Subject': {
+                'Data': 'Error: Backup Failed'
+            },
+            'Body': {
+                'Text': {
+                    'Data': f'The database backup for {bucket_name} failed:\n{str(error)}'
+                }
+            }
+        }
+    )
+
+if __name__ == "__main__":
+    main()
