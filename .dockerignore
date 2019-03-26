@@ -1,0 +1,7 @@
+.gitignore
+.dockerignore
+lambda.zip
+README.md
+Dockerfile
+buildzip.sh
+bin/darwin/

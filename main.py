@@ -1,75 +1,44 @@
 import json
-from os import environ, mkdir, path
+from os import environ, mkdir, path, getcwd
 from threading import Timer
 import tarfile
 from time import strftime, gmtime
 
+import inquirer
 import boto3 as boto
-from bson import BSON
 import hvac
-from pymongo import MongoClient
 import shutil
+import subprocess
 import traceback
+import sys
 
 s3 = boto.resource("s3")
-
-RENEW_TIMER = None
-
-def printProgressBar(iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█'):
-    """
-    Call in a loop to create terminal progress bar
-    @params:
-        iteration   - Required  : current iteration (Int)
-        total       - Required  : total iterations (Int)
-        prefix      - Optional  : prefix string (Str)
-        suffix      - Optional  : suffix string (Str)
-        decimals    - Optional  : positive number of decimals in percent complete (Int)
-        length      - Optional  : character length of bar (Int)
-        fill        - Optional  : bar fill character (Str)
-    """
-    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
-    filledLength = int(length * iteration // total)
-    bar = fill * filledLength + '-' * (length - filledLength)
-    print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = '\r')
-    # Print New Line on Complete
-    if iteration == total:
-        print()
-
-def renew_token(client):
-    global RENEW_TIMER
-
-    client.renew_token(increment=60 * 60 * 72)
-    RENEW_TIMER = Timer(60 * 60 * 70, renew_token, (client,)) # Two hours minutes before TTL
-    RENEW_TIMER.start()
 
 def exit(error=None):
     if error is not None:
         print('Error occured, sending email...')
         print(error)
         email(error, environ.get('EMAIL_FROM'), environ.get('EMAIL_TO').split(';'))
-    if RENEW_TIMER is not None:
-        RENEW_TIMER.cancel()
-        RENEW_TIMER.join(timeout=2)
 
 def main():
     try:
-        global RENEW_TIMER
-
         vault_secret = environ.get("VAULT_SECRET")
         bucket_name = environ.get("BUCKET_NAME")
-        mongo_host = environ.get("MONGO_HOST")
-        username = environ.get("MONGO_USERNAME")
-        password = environ.get("MONGO_PASSWORD")
+        postgres_host = environ.get("POSTGRES_HOST")
+        username = environ.get("POSTGRES_USERNAME")
+        password = environ.get("POSTGRES_PASSWORD")
+        database = environ.get("POSTGRES_DATABASE")
 
-        if mongo_host is None:
-            import inquirer
+        if postgres_host is None:
             questions = [
-                inquirer.Text('mongo_host', message='What is the host of the Mongo instance?'),
-                inquirer.Text('username', message='What is the username for mongo?'),
-                inquirer.Password('password', message='What is the password for mongo?'),
+                inquirer.Text('postgres_host', message='What is the host of the Postgres instance?'),
+                inquirer.Text('postgres_database', message='What is the host of the Postgres instance?'),
+                inquirer.Text('username', message='What is the username for postgres?'),
+                inquirer.Password('password', message='What is the password for postgres?'),
             ]
             answers = inquirer.prompt(questions)
-            mongo_host = answers['mongo_host']
+            postgres_host = answers['postgres_host']
+            database = answers['postgres_database']
             username = answers['username']
             password = answers['password']
 
@@ -79,61 +48,26 @@ def main():
                 token=environ.get('VAULT_TOKEN')
             )
 
-            renew_token(client) # Immediately renew, we don't know the TTL
+            client.renew_token(increment=60 * 60 * 72)
 
             secret = client.read(vault_secret)['data']
             username = secret['username']
             password = secret['password']
+            database = secret['database']
 
-        db_uri = "mongodb://{}:{}@{}/?authSource=admin".format(username, password, mongo_host)
+        filename = "/tmp/backup-{}.tar".format(strftime("%Y-%m-%d_%H%M%S", gmtime()))
+
+        completed_process = None
+        with open(filename, 'w') as backup:
+            completed_process = subprocess.run(
+                [f'{getcwd()}/bin/{sys.platform}/pg_dump', '-h', postgres_host, '-U', username, '-F', 't', database],
+                stdout=backup,
+                env={'PGPASSWORD': password})
+            
         try:
-            client = MongoClient(db_uri)
-        except Exception as e:
+            completed_process.check_returncode()
+        except subprocess.CalledProcessError as e:
             exit(e)
-
-        if path.exists("/tmp/dump"):
-            shutil.rmtree('/tmp/dump')
-        else:
-            mkdir("/tmp/dump")
-
-        database_names = None
-        try:
-            database_names = client.list_database_names()
-        except Exception as e:
-            exit(e)
-        
-        # For each database
-        for db_name in database_names:
-            mkdir("/tmp/dump/{}".format(db_name))
-            database = client.get_database(db_name)
-
-            # For each collection
-            for collection_name in database.list_collection_names():
-                # Get collection
-                collection = database.get_collection(collection_name)
-                # Create metadata.json
-                with open("/tmp/dump/{}/{}.metadata.json".format(db_name, collection_name), "w") as f:
-                    metadata = {
-                        "options": {},
-                        "indexes": []
-                    }
-                    for index in collection.list_indexes():
-                        metadata["indexes"].append(index)
-                    f.write(json.dumps(metadata, separators=(',',':')))
-
-                # Create bson dump
-                with open("/tmp/dump/{}/{}.bson".format(db_name, collection_name), "wb+") as f:
-                    print("Dumping {}.{}".format(db_name, collection_name))
-                    count = collection.count_documents({})
-                    for i, doc in enumerate(collection.find()):
-                        printProgressBar(i+1, count)
-                        f.write(BSON.encode(doc))
-
-        filename = "/tmp/backup-{}.tgz".format(strftime("%Y-%m-%d_%H%M%S", gmtime()))
-
-        print("Creating {}".format(filename))
-        with tarfile.open("{}".format(filename), "w:gz") as tar:
-            tar.add("/tmp/dump", arcname=path.basename("dump"))
 
         if bucket_name is not None:
             s3.Bucket(bucket_name).upload_file(filename, path.basename(filename))
