@@ -18,5 +18,5 @@ zip -r9 ../lambda.zip .
 # Add code to the zip
 cd ../
 zip -g lambda.zip main.py
-zip -g lambda.zip bin/
+zip -g -r lambda.zip bin/
 rm -rf package
