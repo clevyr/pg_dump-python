@@ -1,5 +1,7 @@
 # Python pg_dump
 
+[![](https://images.microbadger.com/badges/image/clevyr/pg_dump-python.svg)](https://microbadger.com/images/clevyr/pg_dump-python "Get your own image badge on microbadger.com")
+
 This is a Docker-compatible Python script to make a dump of a postgres database, puts it in a gzip compressed tarfile, and pushes it to an S3 bucket.
 
 It uses Hashicorp Vault to get the authentication
