@@ -62,7 +62,10 @@ def main():
             completed_process = subprocess.run(
                 [f'{getcwd()}/bin/{sys.platform}/pg_dump', '-h', postgres_host, '-U', username, '-F', 't', database],
                 stdout=backup,
-                env={'PGPASSWORD': password})
+                env={
+                    'PGPASSWORD': password,
+                    'LD_LIBRARY_PATH': f'{getcwd()}/bin/{sys.platform}'
+                })
             
         try:
             completed_process.check_returncode()
