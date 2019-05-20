@@ -48,7 +48,17 @@ def main():
                 token=environ.get('VAULT_TOKEN')
             )
 
-            client.renew_token(increment=60 * 60 * 72)
+            try:
+                client.renew_token(increment=60 * 60 * 72)
+            except hvac.exceptions.InvalidRequest as _:
+                # Swallow, as this is probably a root token
+                pass
+            except hvac.exceptions.Forbidden as _:
+                # Swallow, as this is probably a root token
+                pass
+            except Exception as e:
+                exit(e)
+
 
             secret = client.read(vault_secret)['data']
             username = secret['username']
