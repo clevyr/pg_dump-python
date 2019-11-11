@@ -1,7 +1,6 @@
 import json
 from os import environ, mkdir, path, getcwd
 from threading import Timer
-import tarfile
 from time import strftime, gmtime
 
 import inquirer
@@ -65,12 +64,12 @@ def main():
             password = secret['password']
             database = secret['database']
 
-        filename = "/tmp/backup-{}.tar".format(strftime("%Y-%m-%d_%H%M%S", gmtime()))
+        filename = "/tmp/backup-{}.sql.gz".format(strftime("%Y-%m-%d_%H%M%S", gmtime()))
 
         completed_process = None
         with open(filename, 'w') as backup:
             completed_process = subprocess.run(
-                [f'/usr/local/bin/pg_dump', '-h', postgres_host, '-U', username, '-F', 't', database],
+                ['/usr/local/bin/pg_dump', '-h', postgres_host, '-U', username, '--compress=9', database],
                 stdout=backup,
                 env={'PGPASSWORD': password})
             
