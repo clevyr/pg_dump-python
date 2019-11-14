@@ -69,7 +69,7 @@ def main():
         completed_process = None
         with open(filename, 'w') as backup:
             completed_process = subprocess.run(
-                ['/usr/local/bin/pg_dump', '-h', postgres_host, '-U', username, '--compress=9', '-c', '-O', database],
+                ['/usr/local/bin/pg_dump', '-h', postgres_host, '-U', username, '--compress=9', '-c', '-O', '--if-exists', database],
                 stdout=backup,
                 env={'PGPASSWORD': password})
             
