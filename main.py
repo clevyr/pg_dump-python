@@ -10,8 +10,8 @@ import shutil
 import subprocess
 import traceback
 import sys
-from google.cloud import storage
-from google.cloud import exceptions
+
+s3 = boto.resource("s3")
 
 def exit(error=None):
     if error is not None:
@@ -79,16 +79,7 @@ def main():
             exit(e)
 
         if bucket_name is not None:
-            client = storage.Client()
-            try:
-                bucket = client.get_bucket(bucket_name)
-            except exceptions.NotFound:
-                try:
-                    bucket = client.create_bucket(bucket_name)
-                except e:
-                    print(f"ERROR: {e}")
-            blob = bucket.blob(path.basename(filename))
-            blob.upload_from_filename(filename)
+            s3.Bucket(bucket_name).upload_file(filename, path.basename(filename))
         else:
             print(f"Backup is available at {filename}")
         print("Done")
