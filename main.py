@@ -80,13 +80,7 @@ def main():
 
         if bucket_name is not None:
             client = storage.Client()
-            try:
-                bucket = client.get_bucket(bucket_name)
-            except exceptions.NotFound:
-                try:
-                    bucket = client.create_bucket(bucket_name)
-                except e:
-                    print(f"ERROR: {e}")
+            bucket = client.get_bucket(bucket_name)
             blob = bucket.blob(path.basename(filename))
             blob.upload_from_filename(filename)
         else:
