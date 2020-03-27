@@ -19,7 +19,7 @@ Make sure the lambda or fargate container has IAM access to `s3:PutObject and se
 | VAULT_SECRET      | the secret to pull from Hashicorp's Vault                       | `secret/testing-postgres`          |
 | VAULT_TOKEN       | the token used to access the vault                              | `s.7NaWxclhAr3EE22Z8guUQXw6`       |
 | VAULT_HOST        | the vault instance to connect to                                | `https://vault.domain.com`         |
-| BUCKET_NAME       | The S3 bucket to upload the backup to                           | `example-dev-backups`              |
+| BUCKET_NAME       | The bucket to upload the backup to                              | `example-dev-backups`              |
 | POSTGRES_HOST     | The postgres host to connect to                                 | `database`                         |
 | POSTGRES_USERNAME | The postgres username to authenticate with                      | `username`                         |
 | POSTGRES_PASSWORD | The postgres password to authenticate with                      | `password`                         |
