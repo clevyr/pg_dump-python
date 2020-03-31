@@ -10,15 +10,20 @@ import shutil
 import subprocess
 import traceback
 import sys
+import slack
 from google.cloud import storage
 from google.cloud import exceptions
 
 def exit(error=None):
     if error is not None:
-        print('Error occured, sending email...')
+        print('Error occured, details:')
         print(error)
-        email(error, environ.get('EMAIL_FROM'), environ.get('EMAIL_TO').split(';'))
-
+        if target := environ.get("EMAIL_TO"):
+            print(f'Emailing {target}')
+            email(error, environ.get('EMAIL_FROM'), environ.get('EMAIL_TO').split(';'))
+        if token := environ.get("SLACK_API_TOKEN"):
+            print('Posting to slack')
+            postSlack(error, token)
 def main():
     try:
         vault_secret = environ.get("VAULT_SECRET")
@@ -113,6 +118,25 @@ def email(error, from_address, addresses):
         )
     except Exception as e:
         print('Error sending email...')
+        print(e)
+
+def postSlack(error, token):
+    try:
+        client = slack.WebClient(token=token)
+        err_text = ''.join(traceback.format_exception(etype=type(error), value=error, tb=error.__traceback__))
+        bucket_name = environ.get('BUCKET_NAME')
+        response = client.api_call(
+            api_method="files.upload",
+            params={
+                "channels": "#outages",
+                "content": err_text,
+                "filename": "Error",
+                "initial_comment": f"<!channel>\nThe database backup for {bucket_name} failed with the following error:"
+            }
+        )
+        assert response["ok"]
+    except Exception as e:
+        print('Error posting to slack...')
         print(e)
 
 if __name__ == "__main__":
